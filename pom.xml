@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        PARENT POM (Bill of Materials)
+        ================================
+        This is the "root" of our multi-module Maven project.
+        It doesn't contain any Java code itself — it just:
+        1. Declares shared settings (Java version, dependency versions)
+        2. Lists all child modules
+        3. Defines dependencies that ALL modules can use
+
+        When you run `mvn clean install` from this directory,
+        Maven builds ALL modules in the correct order.
+    -->
+
+    <groupId>com.kafkaoms</groupId>
+    <artifactId>kafka-oms</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>  <!-- "pom" = this is a parent, not a runnable jar -->
+    <name>Kafka OMS - Parent</name>
+    <description>Event-driven Order Management System built with Apache Kafka</description>
+
+    <!-- All child modules -->
+    <modules>
+        <module>common</module>
+        <module>market-data-producer</module>
+        <module>strategy-service</module>
+        <module>risk-service</module>
+        <module>execution-service</module>
+        <module>portfolio-service</module>
+        <module>monitor-service</module>
+    </modules>
+
+    <!-- Shared version numbers — change once, applies everywhere -->
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Dependency versions -->
+        <kafka.version>3.7.0</kafka.version>
+        <jackson.version>2.17.0</jackson.version>
+        <slf4j.version>2.0.12</slf4j.version>
+        <logback.version>1.5.3</logback.version>
+    </properties>
+
+    <!--
+        dependencyManagement vs dependencies:
+        - dependencyManagement = "if a child uses this, here's the version to use"
+        - dependencies = "every child WILL have this dependency"
+
+        We use dependencyManagement so child modules can opt-in to what they need.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Kafka Client: The core library to produce/consume messages -->
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka-clients</artifactId>
+                <version>${kafka.version}</version>
+            </dependency>
+
+            <!-- Jackson: Converts Java objects <-> JSON (serialization) -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+
+            <!-- SLF4J + Logback: Logging framework -->
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+
+            <!-- Our own common module -->
+            <dependency>
+                <groupId>com.kafkaoms</groupId>
+                <artifactId>common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- These dependencies are inherited by ALL child modules -->
+    <dependencies>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Compiler plugin: tells Maven to use Java 21 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

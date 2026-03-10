@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Logback configuration — controls how log messages appear in the terminal.
+
+    Pattern breakdown:
+      %d{HH:mm:ss.SSS}  = timestamp (10:00:02.345)
+      %-20logger{20}     = class name, padded to 20 chars for alignment
+      %highlight(%-5level) = log level (INFO, WARN, ERROR) with colors
+      %msg%n             = the actual message + newline
+
+    This gives us clean, readable output like:
+      10:00:02.345 [MarketDataProducer ] INFO  Publishing AAPL @ 187.42
+-->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%-20logger{20}] %highlight(%-5level) %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Reduce Kafka client noise — it's very chatty at INFO level -->
+    <logger name="org.apache.kafka" level="WARN" />
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+</configuration>

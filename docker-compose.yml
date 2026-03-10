@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # --- Zookeeper: Kafka's coordination service ---
+  # Kafka (in older versions) needs Zookeeper to manage broker metadata,
+  # leader election, and topic configuration. Think of it as Kafka's "brain."
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181        # Port clients (Kafka) use to connect
+      ZOOKEEPER_TICK_TIME: 2000          # Base time unit in ms for heartbeats
+
+  # --- Kafka Broker: The message backbone ---
+  # This is the actual Kafka server. Producers send messages here,
+  # and consumers read from here. All our order/fill/portfolio events
+  # flow through this single broker.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"       # For connections FROM your Mac (our Java services)
+      - "29092:29092"     # For connections FROM other Docker containers
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: one for Docker-internal traffic, one for host (your Mac)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1       # Single broker = replication factor 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"        # We'll create topics explicitly
+      KAFKA_NUM_PARTITIONS: 3                         # Default partitions for new topics
+
+  # --- Kafka Init: Creates our topics on startup ---
+  # This container runs once, creates all the Kafka topics we need,
+  # then exits. This ensures topics exist before any service starts.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      - kafka
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Waiting for Kafka to be ready...'
+      cub kafka-ready -b kafka:29092 1 60
+
+      echo 'Creating Kafka topics...'
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic market-data         --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders-submitted    --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders-approved     --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic orders-rejected     --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fills               --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic portfolio-updated   --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic risk-alerts         --partitions 3 --replication-factor 1
+
+      echo 'Topics created successfully!'
+      kafka-topics --bootstrap-server kafka:29092 --list
+      "
+
+  # --- Kafka UI: Visual dashboard to inspect topics and messages ---
+  # Open http://localhost:8080 in your browser to see all topics,
+  # browse messages, check consumer lag, etc. Very useful for learning.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: kafka-oms-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
