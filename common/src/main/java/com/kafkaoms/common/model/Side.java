@@ -1,11 +1,11 @@
 package com.kafkaoms.common.model;
 
 /**
- * Represents the side of a trade.
+ * Which side of the trade ?
  *
- * In trading:
- *   BUY  = you're purchasing shares (going "long")
- *   SELL = you're selling shares you own
+ * For my future self:
+ *   BUY  = purchasing shares (going "long")
+ *   SELL = selling shares ownned (long position) or not owned (short position)
  */
 public enum Side {
     BUY,

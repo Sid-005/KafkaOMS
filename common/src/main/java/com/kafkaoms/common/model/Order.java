@@ -4,16 +4,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 
 /**
- * Represents a submitted order — the first event in our pipeline.
+ * Represents a submitted order (in Java Record) — the first event in the pipeline.
  *
  * Published to: orders-submitted
  * Consumed by:  risk-service
- *
- * This is a Java "record" (introduced in Java 16). Records are immutable
- * data classes — perfect for events. The compiler auto-generates:
- *   - constructor
- *   - getters (eventId(), orderId(), etc.)
- *   - equals(), hashCode(), toString()
  *
  * Example JSON:
  * {

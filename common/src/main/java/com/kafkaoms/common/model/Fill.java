@@ -9,9 +9,6 @@ import java.time.Instant;
  * Published to: fills
  * Consumed by:  portfolio-service, monitor-service
  *
- * In real markets, one order can produce multiple fills (partial fills).
- * For Phase 1, each order produces exactly one fill.
- *
  * The fill_price includes simulated slippage:
  *   - BUY: market_price + slippage
  *   - SELL: market_price - slippage

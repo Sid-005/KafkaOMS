@@ -2,13 +2,6 @@ package com.kafkaoms.common.config;
 
 /**
  * Central registry of all Kafka topic names.
- *
- * WHY a constants class?
- * If you hardcode "orders-submitted" in 5 different services and then
- * rename the topic, you'd have to find and fix all 5. With constants,
- * you change it in ONE place.
- *
- * These topic names match what we create in docker-compose.yml → kafka-init.
  */
 public final class Topics {
 

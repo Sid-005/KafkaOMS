@@ -9,9 +9,8 @@ import java.time.Instant;
  * Published to: market-data
  * Consumed by:  strategy-service, execution-service, portfolio-service
  *
- * In real markets, prices change thousands of times per second.
- * Our simulator publishes a new price every few seconds for each symbol,
- * with small random price movements to simulate volatility.
+ * Simulates real-time market data with random price movements and volume for each symbol.
+ * Effectively, simulates volitility.
  */
 public record MarketData(
         String symbol,

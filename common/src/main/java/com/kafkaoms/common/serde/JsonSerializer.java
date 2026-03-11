@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Custom Kafka Serializer that converts Java objects → JSON bytes.
  *
- * HOW KAFKA SERIALIZATION WORKS:
+ * HOW KAFKA SERIALIZATION WORKS (for my future self):
  * Kafka stores messages as raw bytes. When you send a Java object (like an Order),
  * Kafka needs to know HOW to convert it to bytes. That's what a Serializer does.
  *

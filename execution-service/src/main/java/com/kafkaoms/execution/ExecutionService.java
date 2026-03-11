@@ -25,7 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Consumes: orders-approved (to know which orders to execute)
  *           market-data (to get current prices for execution)
  * Produces: fills (the result of execution)
- *
+ * 
+ * For my future self, read below to understand:
  * HOW EXECUTION WORKS (Phase 1):
  *   1. An approved order arrives
  *   2. We look up the latest market price for that symbol

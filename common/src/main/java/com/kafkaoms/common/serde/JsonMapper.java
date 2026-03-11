@@ -7,7 +7,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 /**
  * Shared ObjectMapper configuration.
  *
- * ObjectMapper is Jackson's main class for converting Java objects ↔ JSON.
+ * For my future self: ObjectMapper is Jackson's main class for converting Java objects ↔ JSON.
  *
  * We configure it once here so every service serializes/deserializes
  * consistently. Key settings:

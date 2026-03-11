@@ -18,7 +18,7 @@ import java.util.*;
  * by publishing random price updates to the "market-data" Kafka topic.
  *
  * In a real system, this would connect to a market data feed (like Bloomberg
- * or a broker API). For learning, we simulate prices with random walks.
+ * or a broker API). For learning purposes, I'm just gonna simulate it with random walks.
  *
  * HOW IT WORKS:
  * 1. Start with base prices for a few symbols (AAPL, GOOGL, MSFT)
