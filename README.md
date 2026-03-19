@@ -2,22 +2,15 @@
 
 > A Kafka-based trading workflow demonstrating event-driven microservices architecture with real-time order processing, risk validation, execution simulation, and portfolio tracking.
 
-## 🎯 Project Aim
+## Project Aim
 
 Build an **event-sourced trading system** where every state change flows through Kafka as an immutable event. The goal is to learn Kafka fundamentals through a realistic financial use case:
 
 **Flow:** `Strategy Decision → Order → Risk Validation → Execution → Fill → Portfolio Update`
 
-### Why This Project?
-
-- 📚 **Learn Kafka properly** — topics, partitions, consumer groups, offset management
-- 🏗️ **Master event-driven architecture** — decoupled services, event sourcing, replay semantics
-- 💰 **Real-world domain** — trading workflows mirror production OMS systems
-- 🔄 **State reconstruction** — rebuild portfolio state by replaying events from offset 0
-
 ---
 
-## 🏛️ Architecture
+## Architecture
 
 ```
 ┌─────────────────┐
@@ -72,7 +65,7 @@ Build an **event-sourced trading system** where every state change flows through
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -129,7 +122,7 @@ cd monitor-service && mvn exec:java
 
 ---
 
-## 📊 What You'll See
+## What You'll See
 
 When all services are running:
 
@@ -166,7 +159,7 @@ When all services are running:
 
 ---
 
-## 🔍 Observability
+## Observability
 
 ### Kafka UI (http://localhost:8080)
 
@@ -179,12 +172,12 @@ When all services are running:
 
 Each service outputs structured logs with:
 - Event IDs for tracing
-- Emoji indicators (💰 fills, ❌ rejections, ✅ approvals)
+- Emoji indicators (fills, rejections, approvals)
 - Partition and offset metadata
 
 ---
 
-## 🎓 Key Kafka Concepts Demonstrated
+## Key Kafka Concepts Demonstrated
 
 | Concept | Where to See It |
 |---------|----------------|
@@ -198,7 +191,7 @@ Each service outputs structured logs with:
 
 ---
 
-## 🧪 Try These Experiments
+## Try These Experiments
 
 ### 1. Event Replay
 ```bash
@@ -225,9 +218,9 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 
 ---
 
-## 📋 Current Status: Phase 1 Complete ✅
+## Current Status: Phase 1 Complete
 
-### ✅ Implemented
+### Implemented
 - All 6 services functional
 - Event sourcing with full audit trail
 - Idempotency in all consumers
@@ -235,7 +228,7 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 - Kafka UI for inspection
 - Replayability (can rebuild state from events)
 
-### 🚧 Phase 2 Roadmap
+### Phase 2 Roadmap
 - [ ] Fix ExecutionService race condition
 - [ ] Add database persistence (PostgreSQL)
 - [ ] Implement partial fills
@@ -244,7 +237,7 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 - [ ] Dead Letter Queue for error handling
 - [ ] Unit & integration tests
 
-### 🔮 Phase 3 Roadmap
+### Phase 3 Roadmap
 - [ ] LIMIT orders (not just MARKET)
 - [ ] Multi-partition scaling demo
 - [ ] REST API for order submission
@@ -253,7 +246,7 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 **Services won't start?**
 - Ensure Docker is running: `docker ps`
@@ -272,7 +265,7 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 
 ---
 
-## 📚 Tech Stack
+## Tech Stack
 
 - **Java 21** (modern Java features)
 - **Apache Kafka 7.6.0** (event streaming)
@@ -283,7 +276,7 @@ Open Kafka UI → Consumers → Pick any service → See lag per partition
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 This is a learning project! Feel free to:
 - Add new services (alerts, reconciliation, analytics)
@@ -294,10 +287,8 @@ This is a learning project! Feel free to:
 
 ---
 
-## 📄 License
+## License
 
 MIT License — free to use for learning and experimentation.
 
 ---
-
-**Built with ❤️ to learn Kafka through real-world event-driven architecture**
