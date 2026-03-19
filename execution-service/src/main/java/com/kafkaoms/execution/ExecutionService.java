@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * EXECUTION SERVICE
@@ -60,12 +61,15 @@ public class ExecutionService {
     // Track processed event IDs for idempotency
     private static final Set<String> processedEventIds = ConcurrentHashMap.newKeySet();
 
-    // Pending orders waiting for price data
-    private static final Map<String, OrderValidation> pendingOrders = new ConcurrentHashMap<>();
-
     // We also need the original order details — in a real system this would come from a database.
     // For now, we also consume orders-submitted to cache order details.
     private static final Map<String, Order> orderCache = new ConcurrentHashMap<>();
+
+    // Approvals that arrived before the order was cached — held here and retried on each poll loop.
+    // Each entry pairs the approval with the wall-clock time it was first seen, so we can time out.
+    private record PendingApproval(OrderValidation approval, Instant receivedAt) {}
+    private static final Queue<PendingApproval> pendingRetries = new ConcurrentLinkedQueue<>();
+    private static final Duration RETRY_TIMEOUT = Duration.ofSeconds(30);
 
     public static void main(String[] args) {
         // --- Market data consumer (for prices) ---
@@ -144,27 +148,52 @@ public class ExecutionService {
             while (true) {
                 ConsumerRecords<String, OrderValidation> records = consumer.poll(Duration.ofSeconds(1));
 
+                // Process newly arrived approvals
                 for (ConsumerRecord<String, OrderValidation> record : records) {
                     OrderValidation approval = record.value();
 
-                    // Idempotency check
                     if (processedEventIds.contains(approval.eventId())) {
                         log.warn("Duplicate event detected, skipping: {}", approval.eventId());
                         continue;
                     }
                     processedEventIds.add(approval.eventId());
 
-                    // Look up the original order
                     Order order = orderCache.get(approval.orderId());
                     if (order == null) {
-                        log.warn("Order details not found for {}. Waiting...", approval.orderId());
-                        // In a production system, we'd retry or fetch from a database
+                        // Order not cached yet — park it for retry rather than dropping it
+                        log.warn("⏳ Order {} not in cache yet — queuing for retry", approval.orderId());
+                        pendingRetries.add(new PendingApproval(approval, Instant.now()));
                         continue;
                     }
 
-                    // Execute the order
                     executeFill(order, producer);
                 }
+
+                // Drain the retry queue: re-attempt any approvals whose order has since arrived
+                drainRetryQueue(producer);
+            }
+        }
+    }
+
+    private static void drainRetryQueue(KafkaProducer<String, Fill> producer) {
+        Instant now = Instant.now();
+        int size = pendingRetries.size();
+
+        for (int i = 0; i < size; i++) {
+            PendingApproval pending = pendingRetries.poll();
+            if (pending == null) break;
+
+            Order order = orderCache.get(pending.approval().orderId());
+
+            if (order != null) {
+                log.info("✅ Retry succeeded for order {}", pending.approval().orderId());
+                executeFill(order, producer);
+            } else if (Duration.between(pending.receivedAt(), now).compareTo(RETRY_TIMEOUT) > 0) {
+                log.error("❌ Giving up on order {} — order details never arrived after {}s",
+                        pending.approval().orderId(), RETRY_TIMEOUT.getSeconds());
+            } else {
+                // Still within the timeout window — put it back at the tail of the queue
+                pendingRetries.add(pending);
             }
         }
     }
