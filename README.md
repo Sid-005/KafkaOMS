@@ -217,9 +217,3 @@ docker exec -it kafka kafka-console-consumer \
 Open Kafka UI → Consumers → Pick any service → See lag per partition
 
 ---
-
-## License
-
-MIT License — free to use for learning and experimentation.
-
----
