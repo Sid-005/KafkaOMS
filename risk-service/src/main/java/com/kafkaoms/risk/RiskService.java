@@ -23,13 +23,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * The "gatekeeper" of the pipeline. Every submitted order passes through here
  * before it can be executed.
  *
- * Consumes: orders-submitted
+ * Consumes: orders-submitted (main loop)
+ *           market-data     (background thread, for price-based cash check)
  * Produces: orders-approved OR orders-rejected
  *
  * RISK RULES (Phase 1):
  *   1. Max order size: no single order > 100 shares
  *   2. Max position per symbol: no more than 500 shares of any one stock
  *   3. Long-only: no selling shares you don't own (no short selling)
+ *
+ * RISK RULES (Phase 2):
+ *   4. Sufficient cash: estimated BUY cost must not exceed availableCash
+ *      Cash is reserved at approval time (pessimistic), not at fill time.
+ *      This prevents approving multiple orders that all rely on the same cash.
  *
  * WHY RISK CHECKS MATTER:
  * In real trading, risk checks prevent catastrophic losses. A bug in the
@@ -50,16 +56,49 @@ public class RiskService {
     // --- Risk limits ---
     private static final int MAX_ORDER_SIZE = 100;
     private static final int MAX_POSITION_PER_SYMBOL = 500;
+    private static final double STARTING_CASH = 100_000.0;
 
     // Track current positions (symbol → quantity held)
     // In production, this would come from a database
     private static final Map<String, Integer> positions = new ConcurrentHashMap<>();
 
+    // Cash balance — reduced when BUYs are approved, increased when SELLs are approved.
+    // volatile so the main thread's writes are immediately visible (happens-before guarantee).
+    // Only ever written from the main consumer thread, so no further locking needed.
+    private static volatile double availableCash = STARTING_CASH;
+
+    // Latest market prices — populated by the background market-data consumer thread
+    private static final Map<String, Double> latestPrices = new ConcurrentHashMap<>();
+
     // Track processed event IDs for idempotency
     private static final Set<String> processedEventIds = ConcurrentHashMap.newKeySet();
 
     public static void main(String[] args) {
-        // Consumer config
+        // --- Market data consumer (background thread, for cash check prices) ---
+        Properties marketConsumerProps = new Properties();
+        marketConsumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        marketConsumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "risk-service-market");
+        marketConsumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        marketConsumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class.getName());
+        marketConsumerProps.put("value.deserializer.class", MarketData.class.getName());
+        marketConsumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+
+        Thread marketThread = new Thread(() -> {
+            try (KafkaConsumer<String, MarketData> consumer = new KafkaConsumer<>(marketConsumerProps)) {
+                consumer.subscribe(List.of(Topics.MARKET_DATA));
+                while (true) {
+                    ConsumerRecords<String, MarketData> records = consumer.poll(Duration.ofMillis(500));
+                    for (ConsumerRecord<String, MarketData> record : records) {
+                        MarketData tick = record.value();
+                        latestPrices.put(tick.symbol(), tick.price());
+                    }
+                }
+            }
+        }, "risk-market-data-reader");
+        marketThread.setDaemon(true);
+        marketThread.start();
+
+        // --- Orders consumer config ---
         Properties consumerProps = new Properties();
         consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
         consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "risk-service");
@@ -109,12 +148,21 @@ public class RiskService {
 
                         producer.send(new ProducerRecord<>(Topics.ORDERS_APPROVED, order.symbol(), approval));
 
-                        // Update our local position tracking
+                        // Update position tracking
                         int delta = order.side() == Side.BUY ? order.quantity() : -order.quantity();
                         positions.merge(order.symbol(), delta, Integer::sum);
 
-                        log.info("✅ APPROVED: {} {} {} x{}",
-                                order.orderId(), order.side(), order.symbol(), order.quantity());
+                        // Update cash: reserve cash on BUY, release it on SELL
+                        double price = latestPrices.getOrDefault(order.symbol(), 0.0);
+                        if (order.side() == Side.BUY) {
+                            availableCash -= order.quantity() * price;
+                        } else {
+                            availableCash += order.quantity() * price;
+                        }
+
+                        log.info("✅ APPROVED: {} {} {} x{} | cash remaining: ${}",
+                                order.orderId(), order.side(), order.symbol(), order.quantity(),
+                                String.format("%.2f", availableCash));
                     } else {
                         // REJECTED — publish to orders-rejected
                         OrderValidation rejection = new OrderValidation(
@@ -158,6 +206,19 @@ public class RiskService {
             if (newPosition > MAX_POSITION_PER_SYMBOL) {
                 return "Position would be " + newPosition + " for " + order.symbol()
                         + " — exceeds max of " + MAX_POSITION_PER_SYMBOL;
+            }
+        }
+
+        // Rule 4: Sufficient cash for BUY orders
+        if (order.side() == Side.BUY) {
+            Double marketPrice = latestPrices.get(order.symbol());
+            if (marketPrice == null) {
+                return "No market price available for " + order.symbol() + " — cannot assess cash requirement";
+            }
+            double estimatedCost = order.quantity() * marketPrice;
+            if (estimatedCost > availableCash) {
+                return String.format("Insufficient cash: order costs ~$%.2f but only $%.2f available",
+                        estimatedCost, availableCash);
             }
         }
 
