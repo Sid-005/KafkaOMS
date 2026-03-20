@@ -4,6 +4,8 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.model.DeadLetterEvent;
+import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
@@ -114,7 +116,8 @@ public class PortfolioService {
 
         // Main loop: process fills
         try (KafkaConsumer<String, Fill> consumer = new KafkaConsumer<>(fillProps);
-             KafkaProducer<String, PortfolioUpdate> producer = new KafkaProducer<>(producerProps)) {
+             KafkaProducer<String, PortfolioUpdate> producer = new KafkaProducer<>(producerProps);
+             KafkaProducer<String, DeadLetterEvent> dlqProducer = DlqPublisher.buildProducer()) {
 
             consumer.subscribe(List.of(Topics.FILLS));
             log.info("Portfolio Service started. Cash: ${}. Waiting for fills...", String.format("%.2f", cash));
@@ -123,17 +126,25 @@ public class PortfolioService {
                 ConsumerRecords<String, Fill> records = consumer.poll(Duration.ofSeconds(1));
 
                 for (ConsumerRecord<String, Fill> record : records) {
-                    Fill fill = record.value();
-
-                    // Idempotency check
-                    if (processedEventIds.contains(fill.eventId())) {
-                        log.warn("Duplicate fill event detected, skipping: {}", fill.eventId());
+                    if (record.value() == null) {
+                        DlqPublisher.publish(dlqProducer, record, "PortfolioService",
+                                new RuntimeException("Deserialization failed — message could not be parsed as Fill"));
                         continue;
                     }
-                    processedEventIds.add(fill.eventId());
 
-                    // Process the fill and update portfolio
-                    processFill(fill, producer);
+                    try {
+                        Fill fill = record.value();
+
+                        if (processedEventIds.contains(fill.eventId())) {
+                            log.warn("Duplicate fill event detected, skipping: {}", fill.eventId());
+                            continue;
+                        }
+                        processedEventIds.add(fill.eventId());
+
+                        processFill(fill, producer);
+                    } catch (Exception e) {
+                        DlqPublisher.publish(dlqProducer, record, "PortfolioService", e);
+                    }
                 }
             }
         }

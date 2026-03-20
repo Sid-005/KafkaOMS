@@ -3,7 +3,9 @@ package com.kafkaoms.monitor;
 import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
+import com.kafkaoms.common.util.DlqPublisher;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +82,9 @@ public class MonitorService {
         fillProps.put("value.deserializer.class", Fill.class.getName());
         fillProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
+        // DLQ producer — shared across all background threads (effectively final)
+        final KafkaProducer<String, DeadLetterEvent> dlqProducer = DlqPublisher.buildProducer();
+
         // Background: read portfolio updates
         Thread portfolioThread = new Thread(() -> {
             try (KafkaConsumer<String, PortfolioUpdate> consumer = new KafkaConsumer<>(portfolioProps)) {
@@ -87,6 +92,11 @@ public class MonitorService {
                 while (true) {
                     ConsumerRecords<String, PortfolioUpdate> records = consumer.poll(Duration.ofMillis(500));
                     for (ConsumerRecord<String, PortfolioUpdate> record : records) {
+                        if (record.value() == null) {
+                            DlqPublisher.publish(dlqProducer, record, "MonitorService",
+                                    new RuntimeException("Deserialization failed — message could not be parsed as PortfolioUpdate"));
+                            continue;
+                        }
                         PortfolioUpdate update = record.value();
                         positions.put(update.symbol(), update.position());
                         avgCosts.put(update.symbol(), update.avgCost());
@@ -107,6 +117,11 @@ public class MonitorService {
                 while (true) {
                     ConsumerRecords<String, OrderValidation> records = consumer.poll(Duration.ofMillis(500));
                     for (ConsumerRecord<String, OrderValidation> record : records) {
+                        if (record.value() == null) {
+                            DlqPublisher.publish(dlqProducer, record, "MonitorService",
+                                    new RuntimeException("Deserialization failed — message could not be parsed as OrderValidation"));
+                            continue;
+                        }
                         OrderValidation rejection = record.value();
                         totalRejections++;
                         addRecentEvent("❌ REJECTED " + rejection.orderId() + ": " + rejection.reason());
@@ -124,6 +139,11 @@ public class MonitorService {
                 while (true) {
                     ConsumerRecords<String, Fill> records = consumer.poll(Duration.ofMillis(500));
                     for (ConsumerRecord<String, Fill> record : records) {
+                        if (record.value() == null) {
+                            DlqPublisher.publish(dlqProducer, record, "MonitorService",
+                                    new RuntimeException("Deserialization failed — message could not be parsed as Fill"));
+                            continue;
+                        }
                         Fill fill = record.value();
                         totalFills++;
                         addRecentEvent(String.format("💰 FILL %s %s %s x%d @ $%.2f",

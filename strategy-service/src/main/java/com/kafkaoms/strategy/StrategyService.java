@@ -4,6 +4,8 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.model.DeadLetterEvent;
+import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
@@ -78,23 +80,30 @@ public class StrategyService {
         producerProps.put(ProducerConfig.ACKS_CONFIG, "all");
 
         try (KafkaConsumer<String, MarketData> consumer = new KafkaConsumer<>(consumerProps);
-             KafkaProducer<String, Order> producer = new KafkaProducer<>(producerProps)) {
+             KafkaProducer<String, Order> producer = new KafkaProducer<>(producerProps);
+             KafkaProducer<String, DeadLetterEvent> dlqProducer = DlqPublisher.buildProducer()) {
 
-            // Subscribe to the market-data topic
             consumer.subscribe(List.of(Topics.MARKET_DATA));
             log.info("Strategy Service started. Listening for market data...");
 
-            // The poll loop — the heart of every Kafka consumer
             while (true) {
-                // Ask Kafka: "Any new messages in the last 1 second?"
                 ConsumerRecords<String, MarketData> records = consumer.poll(Duration.ofSeconds(1));
 
                 for (ConsumerRecord<String, MarketData> record : records) {
-                    MarketData tick = record.value();
-                    latestPrices.put(tick.symbol(), tick.price());
-                    tickCount++;
+                    if (record.value() == null) {
+                        DlqPublisher.publish(dlqProducer, record, "StrategyService",
+                                new RuntimeException("Deserialization failed — message could not be parsed as MarketData"));
+                        continue;
+                    }
 
-                    log.debug("Received: {} @ ${}", tick.symbol(), tick.price());
+                    try {
+                        MarketData tick = record.value();
+                        latestPrices.put(tick.symbol(), tick.price());
+                        tickCount++;
+                        log.debug("Received: {} @ ${}", tick.symbol(), tick.price());
+                    } catch (Exception e) {
+                        DlqPublisher.publish(dlqProducer, record, "StrategyService", e);
+                    }
                 }
 
                 // Every N ticks, submit a random order
