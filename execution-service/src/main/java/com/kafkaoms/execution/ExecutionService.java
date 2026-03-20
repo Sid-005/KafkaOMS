@@ -161,7 +161,7 @@ public class ExecutionService {
                     Order order = orderCache.get(approval.orderId());
                     if (order == null) {
                         // Order not cached yet — park it for retry rather than dropping it
-                        log.warn("⏳ Order {} not in cache yet — queuing for retry", approval.orderId());
+                        log.warn("Order {} not in cache yet — queuing for retry", approval.orderId());
                         pendingRetries.add(new PendingApproval(approval, Instant.now()));
                         continue;
                     }
@@ -186,10 +186,10 @@ public class ExecutionService {
             Order order = orderCache.get(pending.approval().orderId());
 
             if (order != null) {
-                log.info("✅ Retry succeeded for order {}", pending.approval().orderId());
+                log.info("Retry succeeded for order {}", pending.approval().orderId());
                 executeFill(order, producer);
             } else if (Duration.between(pending.receivedAt(), now).compareTo(RETRY_TIMEOUT) > 0) {
-                log.error("❌ Giving up on order {} — order details never arrived after {}s",
+                log.error("Giving up on order {} — order details never arrived after {}s",
                         pending.approval().orderId(), RETRY_TIMEOUT.getSeconds());
             } else {
                 // Still within the timeout window — put it back at the tail of the queue
