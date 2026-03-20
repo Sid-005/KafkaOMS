@@ -4,6 +4,8 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.model.DeadLetterEvent;
+import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
@@ -140,7 +142,8 @@ public class ExecutionService {
 
         // Main loop: consume approved orders and execute them
         try (KafkaConsumer<String, OrderValidation> consumer = new KafkaConsumer<>(approvedConsumerProps);
-             KafkaProducer<String, Fill> producer = new KafkaProducer<>(producerProps)) {
+             KafkaProducer<String, Fill> producer = new KafkaProducer<>(producerProps);
+             KafkaProducer<String, DeadLetterEvent> dlqProducer = DlqPublisher.buildProducer()) {
 
             consumer.subscribe(List.of(Topics.ORDERS_APPROVED));
             log.info("Execution Service started. Waiting for approved orders...");
@@ -150,23 +153,34 @@ public class ExecutionService {
 
                 // Process newly arrived approvals
                 for (ConsumerRecord<String, OrderValidation> record : records) {
-                    OrderValidation approval = record.value();
-
-                    if (processedEventIds.contains(approval.eventId())) {
-                        log.warn("Duplicate event detected, skipping: {}", approval.eventId());
-                        continue;
-                    }
-                    processedEventIds.add(approval.eventId());
-
-                    Order order = orderCache.get(approval.orderId());
-                    if (order == null) {
-                        // Order not cached yet — park it for retry rather than dropping it
-                        log.warn("Order {} not in cache yet — queuing for retry", approval.orderId());
-                        pendingRetries.add(new PendingApproval(approval, Instant.now()));
+                    // Null value means JsonDeserializer failed to parse the message
+                    if (record.value() == null) {
+                        DlqPublisher.publish(dlqProducer, record, "ExecutionService",
+                                new RuntimeException("Deserialization failed — message could not be parsed as OrderValidation"));
                         continue;
                     }
 
-                    executeFill(order, producer);
+                    try {
+                        OrderValidation approval = record.value();
+
+                        if (processedEventIds.contains(approval.eventId())) {
+                            log.warn("Duplicate event detected, skipping: {}", approval.eventId());
+                            continue;
+                        }
+                        processedEventIds.add(approval.eventId());
+
+                        Order order = orderCache.get(approval.orderId());
+                        if (order == null) {
+                            // Order not cached yet — park it for retry rather than dropping it
+                            log.warn("⏳ Order {} not in cache yet — queuing for retry", approval.orderId());
+                            pendingRetries.add(new PendingApproval(approval, Instant.now()));
+                            continue;
+                        }
+
+                        executeFill(order, producer);
+                    } catch (Exception e) {
+                        DlqPublisher.publish(dlqProducer, record, "ExecutionService", e);
+                    }
                 }
 
                 // Drain the retry queue: re-attempt any approvals whose order has since arrived

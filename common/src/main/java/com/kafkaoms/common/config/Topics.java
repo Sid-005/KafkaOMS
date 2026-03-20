@@ -14,4 +14,5 @@ public final class Topics {
     public static final String FILLS             = "fills";
     public static final String PORTFOLIO_UPDATED = "portfolio-updated";
     public static final String RISK_ALERTS       = "risk-alerts";
+    public static final String DEAD_LETTER       = "dead-letter";
 }

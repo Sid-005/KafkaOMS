@@ -56,8 +56,11 @@ public class JsonDeserializer<T> implements Deserializer<T> {
         try {
             return mapper.readValue(data, targetType);
         } catch (Exception e) {
-            log.error("Failed to deserialize message from topic {}: {}", topic, e.getMessage());
-            throw new RuntimeException("Deserialization failed", e);
+            // Return null instead of throwing so that consumer.poll() does not crash.
+            // The calling service checks for null values and routes them to the dead-letter topic.
+            log.error("Failed to deserialize message from topic {} — routing to dead-letter. Error: {}",
+                    topic, e.getMessage());
+            return null;
         }
     }
 }

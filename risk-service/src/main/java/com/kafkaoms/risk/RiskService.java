@@ -4,6 +4,8 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.model.DeadLetterEvent;
+import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
@@ -115,7 +117,8 @@ public class RiskService {
         producerProps.put(ProducerConfig.ACKS_CONFIG, "all");
 
         try (KafkaConsumer<String, Order> consumer = new KafkaConsumer<>(consumerProps);
-             KafkaProducer<String, OrderValidation> producer = new KafkaProducer<>(producerProps)) {
+             KafkaProducer<String, OrderValidation> producer = new KafkaProducer<>(producerProps);
+             KafkaProducer<String, DeadLetterEvent> dlqProducer = DlqPublisher.buildProducer()) {
 
             consumer.subscribe(List.of(Topics.ORDERS_SUBMITTED));
             log.info("Risk Service started. Validating incoming orders...");
@@ -124,17 +127,25 @@ public class RiskService {
                 ConsumerRecords<String, Order> records = consumer.poll(Duration.ofSeconds(1));
 
                 for (ConsumerRecord<String, Order> record : records) {
-                    Order order = record.value();
-
-                    // --- Idempotency check ---
-                    if (processedEventIds.contains(order.eventId())) {
-                        log.warn("Duplicate event detected, skipping: {}", order.eventId());
+                    // Null value means JsonDeserializer failed to parse the message
+                    if (record.value() == null) {
+                        DlqPublisher.publish(dlqProducer, record, "RiskService",
+                                new RuntimeException("Deserialization failed — message could not be parsed as Order"));
                         continue;
                     }
-                    processedEventIds.add(order.eventId());
 
-                    // --- Run risk checks ---
-                    String rejectionReason = validateOrder(order);
+                    try {
+                        Order order = record.value();
+
+                        // --- Idempotency check ---
+                        if (processedEventIds.contains(order.eventId())) {
+                            log.warn("Duplicate event detected, skipping: {}", order.eventId());
+                            continue;
+                        }
+                        processedEventIds.add(order.eventId());
+
+                        // --- Run risk checks ---
+                        String rejectionReason = validateOrder(order);
 
                     if (rejectionReason == null) {
                         // APPROVED — publish to orders-approved
@@ -176,6 +187,9 @@ public class RiskService {
                         producer.send(new ProducerRecord<>(Topics.ORDERS_REJECTED, order.symbol(), rejection));
 
                         log.info("❌ REJECTED: {} — Reason: {}", order.orderId(), rejectionReason);
+                    }
+                    } catch (Exception e) {
+                        DlqPublisher.publish(dlqProducer, record, "RiskService", e);
                     }
                 }
             }
