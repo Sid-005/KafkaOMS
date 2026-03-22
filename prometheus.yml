@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 5s      # Pull metrics from every service every 5 seconds
+  evaluation_interval: 5s  # Evaluate alerting rules every 5 seconds
+
+scrape_configs:
+  - job_name: 'risk-service'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+
+  - job_name: 'execution-service'
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+
+  - job_name: 'portfolio-service'
+    static_configs:
+      - targets: ['host.docker.internal:8083']

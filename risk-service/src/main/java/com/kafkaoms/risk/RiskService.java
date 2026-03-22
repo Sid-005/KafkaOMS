@@ -4,9 +4,11 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.metrics.MetricsRegistry;
 import com.kafkaoms.common.model.DeadLetterEvent;
 import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
+import io.micrometer.core.instrument.Counter;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -47,6 +49,16 @@ public class RiskService {
     private static final Set<String> processedEventIds = ConcurrentHashMap.newKeySet();
 
     public static void main(String[] args) {
+        MetricsRegistry.init("risk-service", 8081);
+        Counter approvedCounter = Counter.builder("risk_orders_total")
+                .description("Total orders processed by the risk service")
+                .tag("result", "approved")
+                .register(MetricsRegistry.get());
+        Counter rejectedCounter = Counter.builder("risk_orders_total")
+                .description("Total orders processed by the risk service")
+                .tag("result", "rejected")
+                .register(MetricsRegistry.get());
+
         // --- Market data consumer (background thread, for cash check prices) ---
         Properties marketConsumerProps = new Properties();
         marketConsumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
@@ -125,6 +137,7 @@ public class RiskService {
                             );
                             producer.send(new ProducerRecord<>(Topics.ORDERS_APPROVED, order.symbol(), approval));
                             validator.recordApproval(order);
+                            approvedCounter.increment();
 
                             log.info("✅ APPROVED: {} {} {} x{} | cash remaining: ${}",
                                     order.orderId(), order.side(), order.symbol(), order.quantity(),
@@ -138,6 +151,7 @@ public class RiskService {
                                     Instant.now()
                             );
                             producer.send(new ProducerRecord<>(Topics.ORDERS_REJECTED, order.symbol(), rejection));
+                            rejectedCounter.increment();
 
                             log.info("❌ REJECTED: {} — Reason: {}", order.orderId(), rejectionReason);
                         }

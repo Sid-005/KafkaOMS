@@ -47,6 +47,7 @@
         <jackson.version>2.17.0</jackson.version>
         <slf4j.version>2.0.12</slf4j.version>
         <logback.version>1.5.3</logback.version>
+        <micrometer.version>1.13.1</micrometer.version>
     </properties>
 
     <!--
@@ -94,6 +95,13 @@
                 <groupId>com.kafkaoms</groupId>
                 <artifactId>common</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <!-- Micrometer: metrics instrumentation + Prometheus registry -->
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-registry-prometheus</artifactId>
+                <version>${micrometer.version}</version>
             </dependency>
 
             <!-- JUnit 5: Unit testing framework -->

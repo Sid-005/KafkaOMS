@@ -1,8 +1,11 @@
 package com.kafkaoms.common.util;
 
 import com.kafkaoms.common.config.Topics;
+import com.kafkaoms.common.metrics.MetricsRegistry;
 import com.kafkaoms.common.model.DeadLetterEvent;
 import com.kafkaoms.common.serde.JsonSerializer;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -81,8 +84,19 @@ public final class DlqPublisher {
                         log.warn("☠️  DEAD LETTER: service={} topic={} partition={} offset={} error={}: {}",
                                 sourceService, record.topic(), record.partition(), record.offset(),
                                 cause.getClass().getSimpleName(), cause.getMessage());
+                        incrementDeadLetterCounter(sourceService);
                     }
                 }
         );
+    }
+
+    private static void incrementDeadLetterCounter(String sourceService) {
+        PrometheusMeterRegistry registry = MetricsRegistry.getOrNull();
+        if (registry == null) return;
+        Counter.builder("dead_letter_events_total")
+                .description("Total messages routed to the dead-letter topic")
+                .tag("source_service", sourceService)
+                .register(registry)
+                .increment();
     }
 }

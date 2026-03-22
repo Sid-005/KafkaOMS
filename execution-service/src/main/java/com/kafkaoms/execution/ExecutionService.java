@@ -4,9 +4,12 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.metrics.MetricsRegistry;
 import com.kafkaoms.common.model.DeadLetterEvent;
 import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -74,6 +77,14 @@ public class ExecutionService {
     private static final Duration RETRY_TIMEOUT = Duration.ofSeconds(30);
 
     public static void main(String[] args) {
+        MetricsRegistry.init("execution-service", 8082);
+        Counter fillsCounter = Counter.builder("execution_fills_total")
+                .description("Total fills executed")
+                .register(MetricsRegistry.get());
+        Gauge.builder("execution_retry_queue_size", pendingRetries, java.util.Collection::size)
+                .description("Number of approvals waiting for their order to be cached")
+                .register(MetricsRegistry.get());
+
         // --- Market data consumer (for prices) ---
         Properties marketConsumerProps = new Properties();
         marketConsumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
@@ -177,19 +188,19 @@ public class ExecutionService {
                             continue;
                         }
 
-                        executeFill(order, producer);
+                        executeFill(order, producer, fillsCounter);
                     } catch (Exception e) {
                         DlqPublisher.publish(dlqProducer, record, "ExecutionService", e);
                     }
                 }
 
                 // Drain the retry queue: re-attempt any approvals whose order has since arrived
-                drainRetryQueue(producer);
+                drainRetryQueue(producer, fillsCounter);
             }
         }
     }
 
-    private static void drainRetryQueue(KafkaProducer<String, Fill> producer) {
+    private static void drainRetryQueue(KafkaProducer<String, Fill> producer, Counter fillsCounter) {
         Instant now = Instant.now();
         int size = pendingRetries.size();
 
@@ -200,10 +211,10 @@ public class ExecutionService {
             Order order = orderCache.get(pending.approval().orderId());
 
             if (order != null) {
-                log.info("Retry succeeded for order {}", pending.approval().orderId());
-                executeFill(order, producer);
+                log.info("✅ Retry succeeded for order {}", pending.approval().orderId());
+                executeFill(order, producer, fillsCounter);
             } else if (Duration.between(pending.receivedAt(), now).compareTo(RETRY_TIMEOUT) > 0) {
-                log.error("Giving up on order {} — order details never arrived after {}s",
+                log.error("❌ Giving up on order {} — order details never arrived after {}s",
                         pending.approval().orderId(), RETRY_TIMEOUT.getSeconds());
             } else {
                 // Still within the timeout window — put it back at the tail of the queue
@@ -212,7 +223,7 @@ public class ExecutionService {
         }
     }
 
-    private static void executeFill(Order order, KafkaProducer<String, Fill> producer) {
+    private static void executeFill(Order order, KafkaProducer<String, Fill> producer, Counter fillsCounter) {
         Double marketPrice = latestPrices.get(order.symbol());
         if (marketPrice == null) {
             log.warn("No market price available for {}. Cannot execute {}.", order.symbol(), order.orderId());
@@ -245,6 +256,7 @@ public class ExecutionService {
                     if (exception != null) {
                         log.error("Failed to publish fill: {}", exception.getMessage());
                     } else {
+                        fillsCounter.increment();
                         log.info("💰 FILL: {} {} {} x{} @ ${} (fee: ${}) → partition {}, offset {}",
                                 fill.fillId(), order.side(), order.symbol(), fill.filledQuantity(),
                                 fill.fillPrice(), fill.fee(), metadata.partition(), metadata.offset());

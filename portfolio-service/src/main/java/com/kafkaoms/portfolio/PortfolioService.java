@@ -4,9 +4,11 @@ import com.kafkaoms.common.config.Topics;
 import com.kafkaoms.common.model.*;
 import com.kafkaoms.common.serde.JsonDeserializer;
 import com.kafkaoms.common.serde.JsonSerializer;
+import com.kafkaoms.common.metrics.MetricsRegistry;
 import com.kafkaoms.common.model.DeadLetterEvent;
 import com.kafkaoms.common.util.DlqPublisher;
 import com.kafkaoms.common.util.IdGenerator;
+import io.micrometer.core.instrument.Gauge;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -74,6 +76,15 @@ public class PortfolioService {
     private static final Set<String> processedEventIds = ConcurrentHashMap.newKeySet();
 
     public static void main(String[] args) {
+        MetricsRegistry.init("portfolio-service", 8083);
+        Gauge.builder("portfolio_cash_balance", () -> cash)
+                .description("Current cash balance in the portfolio")
+                .register(MetricsRegistry.get());
+        Gauge.builder("portfolio_realized_pnl", () ->
+                        realizedPnl.values().stream().mapToDouble(Double::doubleValue).sum())
+                .description("Total realized PnL across all symbols")
+                .register(MetricsRegistry.get());
+
         // Market data consumer (background thread)
         Properties marketProps = new Properties();
         marketProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
